@@ -302,7 +302,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return wb.addImage({ buffer: b64ToU8(img.d), extension: ext });
   }
   function place(ws, id, c1, r1, ox, oy, w, h) {
-    ws.addImage(id, { tl: anchorAt(ws, c1, r1, ox, oy), ext: { width: Math.round(w), height: Math.round(h) }, editAs: 'oneCell' });
+    ws.addImage(id, { tl: anchorAt(ws, c1, r1, ox, oy), br: anchorAt(ws, c1, r1, ox + Math.round(w), oy + Math.round(h)), editAs: 'oneCell' });
   }
 
   /* mejor cuadrícula para n fotos dentro de W x H */
@@ -318,10 +318,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   /* ---------- generador ---------- */
-  async function generate(ExcelJS, tpl, DATA, v) {
+  async function generate(ExcelJS, tpl, DATA, v, opts) {
+    opts = opts || {};
     var wb = new ExcelJS.Workbook();
     await wb.xlsx.load(tpl);
     var ck = wb.getWorksheet('CHECK LIST'), ft = wb.getWorksheet('FOTOGRAFIAS');
+    [ck, ft].forEach(function (ws) { if (ws.properties) delete ws.properties.outlineProperties; });
     var cfg = v.config, hd = v.header || {}, K = DATA.shift || 0;
     var on = activeGroups(DATA, cfg);
     var onSet = {}; on.forEach(function (g) { onSet[g.key + g.n] = 1; });
@@ -338,7 +340,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     setHdr(ck, true); setHdr(ft, false);
 
     /* ocultar módulos no usados */
-    DATA.groups.forEach(function (g) {
+    if (!opts.noHide) DATA.groups.forEach(function (g) {
       if (onSet[g.key + g.n]) return;
       for (var r = g.rows[0]; r <= g.rows[1]; r++) { ck.getRow(r).hidden = true; ft.getRow(r).hidden = true; }
     });
@@ -386,7 +388,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           sty(lc, { alignment: { wrapText: true, vertical: 'top', horizontal: 'left' }, font: { name: 'Calibri', size: 10 } });
         }
         var photos = (v.photos && v.photos[m.hdr]) || [];
-        if (!photos.length) return;
+        if (!photos.length || opts.noImages) return;
         var asp = 0; photos.forEach(function (p) { asp += p.w / p.h; }); asp /= photos.length;
         var sz = boxSize(ft, 9, r1, 10, r2);
         var f = 1, grid = bestGrid(photos.length, sz.W, sz.H, asp, PAD);
@@ -394,7 +396,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         for (var k = 0; k < steps.length && grid.w < 230; k++) {
           f = steps[k]; grid = bestGrid(photos.length, sz.W, sz.H * f, asp, PAD);
         }
-        if (f > 1) for (var r = r1; r <= r2; r++) ft.getRow(r).height = (ft.getRow(r).height || 15) * f;
+        if (f > 1) for (var r = r1; r <= r2; r++) ft.getRow(r).height = Math.min(409, (ft.getRow(r).height || 15) * f);
         var H = sz.H * f, usedH = grid.r * grid.h + (grid.r + 1) * PAD;
         var oy0 = Math.max(PAD, (H - (grid.r * grid.h + (grid.r - 1) * PAD)) / 2);
         photos.forEach(function (p, i) {
@@ -429,7 +431,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     /* firmas */
     function sig(ws, img, c1, r1, c2, r2) {
-      if (!img) return;
+      if (!img || opts.noImages) return;
       var sz = boxSize(ws, c1, r1, c2, r2), p = 6;
       var w = sz.W - 2 * p, h = w * img.h / img.w;
       if (h > sz.H - 2 * p) { h = sz.H - 2 * p; w = h * img.w / img.h; }
@@ -440,8 +442,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     sig(ft, sg.prof, 2, 258 + K, 7, 263 + K); sig(ft, sg.prof, 2, 268 + K, 7, 273 + K); sig(ft, sg.enc, 8, 268 + K, 8, 273 + K);
 
     /* saltos de página recalculados según los módulos visibles */
-    repaginate(ck, on, 2060, K);
-    repaginate(ft, on, 1700, K);
+    if (!opts.noBreaks) { repaginate(ck, on, 2060, K); repaginate(ft, on, 1700, K); }
 
     return wb.xlsx.writeBuffer();
   }
